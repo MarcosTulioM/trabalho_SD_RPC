@@ -7,6 +7,16 @@ import threading
 
 delay = 0.01
 
+# Dicionário para guardar as cores já usadas
+cores_usadas = set()
+
+def gerar_cor_aleatoria():
+    while True:
+        cor = "#{:06x}".format(random.randint(0, 0xFFFFFF))
+        if cor not in cores_usadas:
+            cores_usadas.add(cor)
+            return cor
+
 # Score
 score = 0
 high_score = 0
@@ -19,13 +29,15 @@ wn.setup(width=1.0, height=1.0, startx=None, starty=None)
 wn.tracer(0) # Turns off the screen updates
 
 # gamer 1
+minha_cor = gerar_cor_aleatoria()
 head = turtle.Turtle()
 head.speed(0)
 head.shape("circle")
-head.color("red")
+head.color(minha_cor)
 head.penup()
 head.goto(0,0)
 head.direction = "stop"
+cores_usadas.add(minha_cor)
 
 # Functions
 def go_up():
@@ -101,17 +113,18 @@ thread_assistente.start()
 while True:
     wn.update()
     move()
-    conn.root.exposed_publicar_movimento(meu_id, head.xcor(), head.ycor())
+    conn.root.exposed_publicar_movimento(meu_id, head.xcor(), head.ycor(), minha_cor)
     for jogador_id, posicao in posicoes_dos_outros.items():
+        
         if jogador_id == meu_id:
             continue # Pula o próprio jogador
-
         if jogador_id not in turtles_dos_outros:
             # Jogador novo, cria a turtle
+            minha_cor = gerar_cor_aleatoria()
             novo_jogador = turtle.Turtle()
             novo_jogador.speed(0)
             novo_jogador.shape("circle")
-            novo_jogador.color("blue")
+            novo_jogador.color(posicao.get("cor", "blue"))
             novo_jogador.penup()
             turtles_dos_outros[jogador_id] = novo_jogador
 

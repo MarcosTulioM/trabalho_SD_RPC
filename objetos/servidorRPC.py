@@ -4,9 +4,13 @@ import rpyc
 posicoes = {}
 
 class ServicoDoJogo(rpyc.Service):
-    def exposed_publicar_movimento(self, id_jogador, x, y):
+    def exposed_publicar_movimento(self, id_jogador, x, y, cor=None):
         global posicoes
-        posicoes[id_jogador] = {'x': x, 'y': y}
+        if id_jogador not in posicoes:
+            posicoes[id_jogador] = {'x': x, 'y': y, 'cor': cor}
+        else:
+            posicoes[id_jogador]['x'] = x
+            posicoes[id_jogador]['y'] = y
         print(f"Posição de {id_jogador} atualizada para ({x}, {y})")
         return "OK"
 
