@@ -40,17 +40,20 @@ head.direction = "stop"
 cores_usadas.add(minha_cor)
 
 # Functions
-def go_up():
+def start_move_up():
     head.direction = "up"
 
-def go_down():
+def start_move_down():
     head.direction = "down"
 
-def go_left():
+def start_move_left():
     head.direction = "left"
 
-def go_right():
+def start_move_right():
     head.direction = "right"
+
+def stop_move():
+    head.direction = "stop"
 
 def close():
     wn.bye()
@@ -58,26 +61,30 @@ def close():
 def move():
     if head.direction == "up":
         y = head.ycor()
-        head.sety(y + 2)
+        head.sety(y + 5)
+        stop_move()
 
     if head.direction == "down":
         y = head.ycor()
-        head.sety(y - 2)
+        head.sety(y - 5)
+        stop_move()
 
     if head.direction == "left":
         x = head.xcor()
-        head.setx(x - 2)
+        head.setx(x - 5)
+        stop_move()
 
     if head.direction == "right":
         x = head.xcor()
-        head.setx(x + 2)
+        head.setx(x + 5)
+        stop_move()
 
 # Keyboard bindings
 wn.listen()
-wn.onkeypress(go_up, "w")
-wn.onkeypress(go_down, "s")
-wn.onkeypress(go_left, "a")
-wn.onkeypress(go_right, "d")
+wn.onkeypress(start_move_up, "w")
+wn.onkeypress(start_move_down, "s")
+wn.onkeypress(start_move_left, "a")
+wn.onkeypress(start_move_right, "d")
 wn.onkeypress(close, "Escape")
 
 #Dicionário para "guardar" os outros jogadores
