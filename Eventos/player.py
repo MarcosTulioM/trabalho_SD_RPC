@@ -4,6 +4,9 @@ from tkinter import ttk
 import random
 import time
 import warnings
+import subprocess
+import socket
+import os
 
 #Identificação inicial player/tópicos
 player_id = f"player_{random.randint(1000, 9999)}"
@@ -107,6 +110,22 @@ def fechar_janela():
     client.disconnect()
     ui.root.destroy()
 
+#Funções RPC
+def servidor_rpc_on(host="localhost", port=18861): #Verifica se o servidor RPC está rodando
+    try:
+        with socket.create_connection((host,port), timeout=1):
+            return True
+    except OSError:
+        return False
+    
+def iniciar_rpc_se_necessario():
+    if not servidor_rpc_on():
+        print("Servidor RPC não encontrado. Iniciando...")
+        subprocess.Popen(["python", "servidorRPC.py"])
+        time.sleep(2) #Pequena pausa para subir o servidor
+    else:
+        print("Servidor RPC já está rodando.")
+
 #Função principal das mensagens
 def on_message(client, userdata, msg):
     global partida_anunciada, partida_iniciada
@@ -119,6 +138,14 @@ def on_message(client, userdata, msg):
             partida_iniciada = True
             ui.set_status("Partida encontrada!", "green")
             print(f"[{player_id}] Partida iniciada com: {jogadores_conectados}")
+
+            def iniciar_jogo():
+                ui.root.destroy()
+                iniciar_rpc_se_necessario()
+                subprocess.Popen(["python", "game.py"]) 
+
+            ui.root.after(1500, iniciar_jogo)
+
         return
 
     if topico.startswith("jogo/matchmaking/players/"):
