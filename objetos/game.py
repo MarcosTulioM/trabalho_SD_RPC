@@ -10,6 +10,7 @@ delay = 0.01
 # Dicionário para guardar as cores já usadas
 cores_usadas = set()
 
+# Função para gerar cor aletória
 def gerar_cor_aleatoria():
     while True:
         cor = "#{:06x}".format(random.randint(0, 0xFFFFFF))
