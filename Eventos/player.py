@@ -1,140 +1,178 @@
-#simulator device 1 for mqtt message publishing
 import paho.mqtt.client as paho
-import time
-import random
-import warnings
 import tkinter as tk
 from tkinter import ttk
-import threading
+import random
+import time
+import warnings
 
+#Identificação inicial player/tópicos
 player_id = f"player_{random.randint(1000, 9999)}"
-jogadores_conectados = {player_id}  # Adiciona o próprio jogador
-partida_anunciada = False           # flag para não anunciar várias vezes
-
-#Esconder o aviso de versão antiga
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-#hostname
-broker="localhost"
-#port
-port=1883
-
-def on_publish(client, userdata, result):
-    pass
-
-#Definindo os tópicos
 TOPICO_MATCH = "jogo/matchmaking"
 TOPICO_PRESENCA = f"jogo/matchmaking/players/{player_id}"
 
-client = paho.Client(client_id=player_id, callback_api_version=paho.CallbackAPIVersion.VERSION1)
-client.on_publish = on_publish
-client.will_set(TOPICO_PRESENCA, payload=None, retain=True)  # Limpa o retained ao desconectar inesperado
-client.connect(broker,port)
-client.publish(TOPICO_PRESENCA, payload="online", retain=True)
-print("Conectado ao broker")
+#Estados Globais
+jogadores_conectados = set()
+partida_anunciada = False
+partida_iniciada = False
+entrou_no_matchmaking = False
 
-# Interface
-janela = tk.Tk()
-janela.title(f"Matchmaking - {player_id}")
-janela.geometry("400x250")
-janela.resizable(False, False)
+#Utilitário para definir publica que a partida foi iniciada
+def menor_id(conjunto_ids):
+    return min(conjunto_ids, key=lambda s: int(s.split("_")[-1]))
 
-status_label = ttk.Label(janela, text="Conectado ao broker!", font=("Arial", 14))
-status_label.pack(pady=30)
+# Interface Tkinter
+class MatchmakingUI:
+    def __init__(self, player_id):
+        self.root = tk.Tk()
+        self.root.title(f"Matchmaking - {player_id}")
+        self.root.geometry("400x420")
+        self.root.resizable(False, False)
 
-#Função para iniciar o matchmaking
-def iniciar_matchmaking():
-    status_label.config(text="Buscando partida...")
-    botao_buscar.config(state="disabled") #Desabilita o botão depois de clicar para não iniciar duas vezes
-    #Rodando o loop MQTT em thread separada pra não travar a interface
-    threading.Thread(target=client.loop_forever, daemon=True).start()
+        self.status_label = ttk.Label(self.root, text="Aguardando conexão...", font=("Arial", 12, "bold"), foreground="orange")
+        self.status_label.pack(pady=10)
 
-botao_buscar = ttk.Button(janela, text="Buscar Partida", command=iniciar_matchmaking)
-botao_buscar.pack(pady=20)
+        ttk.Label(self.root, text=f"ID do jogador: {player_id}", font=("Arial", 10)).pack()
 
-#Função para evitar os erros ao fechar a janela
-def fechar_janela():
-    print("Encerrando matchmaking...")
-    try:
-        client.disconnect()
-        client.loop_stop()
-    except:
-        pass
-    janela.destroy()
+        ttk.Label(self.root, text="Jogadores conectados:", font=("Arial", 11)).pack(pady=(20, 5))
 
-janela.protocol("WM_DELETE_WINDOW", fechar_janela)
+        self.lista_jogadores = tk.Text(self.root, height=6, width=40, state="disabled", bg="#f7f7f7")
+        self.lista_jogadores.pack()
 
-janela.mainloop()
+        self.botao_buscar = ttk.Button(self.root, text="Buscar Partida", command=self.buscar_partida)
+        self.botao_buscar.pack(pady=25)
 
+        self.on_buscar_callback = None  # será atribuído no main
 
-#Se inscrevendo nos topicos
-client.subscribe("jogo/matchmaking/players/#")
-client.subscribe(TOPICO_MATCH)
+    #Buscar a partida
+    def buscar_partida(self):
+        self.set_status("Buscando partida...", "blue")
+        self.habilitar_botao(False)
+        if self.on_buscar_callback:
+            self.on_buscar_callback()
 
-#Função chamada quando chega novas mensagens no tópico
-def on_message(client, userdata, msg):
+    #Função para ajudar a mudar os botões
+    def set_status(self, texto, cor="black"):
+        self.status_label.config(text=texto, foreground=cor)
+
+    #Função para atualizar a lista de jogadores
+    def atualizar_jogadores(self, lista):
+        self.lista_jogadores.config(state="normal")
+        self.lista_jogadores.delete(1.0, tk.END)
+        for jogador in sorted(lista):
+            self.lista_jogadores.insert(tk.END, f"• {jogador}\n")
+        self.lista_jogadores.config(state="disabled")
+
+    #Função para mudar o botão
+    def habilitar_botao(self, ativar=True):
+        self.botao_buscar.config(state="normal" if ativar else "disabled")
+
+    #Inicia o looping principal
+    def iniciar(self):
+        self.root.mainloop()
+
+#Função para registrar a presença com QOS
+def set_presenca(ativo: bool, final=False):
+    if final:
+        client.publish(TOPICO_PRESENCA, payload=None, retain=True, qos=1)
+    elif ativo:
+        client.publish(TOPICO_PRESENCA, payload="online", retain=True, qos=1)
+
+#Função para checar se a partida pode ser formada
+def verificar_partida():
     global partida_anunciada
-    conteudo = msg.payload.decode()
+    if not partida_anunciada and len(jogadores_conectados) >= 3:
+        partida_anunciada = True
+        if player_id == menor_id(jogadores_conectados):
+            print(f"[{player_id}] Anunciando partida")
+            client.publish(TOPICO_MATCH, "Partida encontrada!", qos=1)
 
-    #Mantém os jogadores conectados sincronizados em todos os clientes
-    if msg.topic.startswith("jogo/matchmaking/players/"):
-        id_recebido = msg.topic.split("/")[-1]
+#Função que chama o matchmaking
+def iniciar_matchmaking():
+    global entrou_no_matchmaking, partida_anunciada, partida_iniciada
+    entrou_no_matchmaking = True
+    partida_anunciada = False
+    partida_iniciada = False
+    jogadores_conectados.add(player_id)
+    set_presenca(True)
+    client.publish(TOPICO_MATCH, f"{player_id} entrou no matchmaking", qos=1)
 
-        # Se o payload for None, o jogador saiu (LWT limpa)
-        if msg.payload and msg.payload.decode() == "online":
-            jogadores_conectados.add(id_recebido)
-        else:
-            jogadores_conectados.discard(id_recebido)
-        
-        if len(jogadores_conectados) < 3:
-            if partida_anunciada:
-                print(f"Um jogador saiu! Voltando ao matchmaking...")
-                partida_anunciada = False
-        #Se o número de jogadores voltar a ser 3, cria uma nova partida
-        elif not partida_anunciada and len(jogadores_conectados) == 3:
-            partida_anunciada = True
-            if player_id == min(jogadores_conectados):
-                print(f"\n Nova partida formada automaticamente! Jogadores: {jogadores_conectados}")
-                client.publish(TOPICO_MATCH, "Partida encontrada!", retain=False)
-        
-        print(f"[PRESENÇA] jogadores agora conectados: {jogadores_conectados}")
-        return
+#Função para fechar a janela de forma segura
+def fechar_janela():
+    print(f"[{player_id}] Encerrando...")
+    if entrou_no_matchmaking:
+        set_presenca(False, final=True)
+        time.sleep(0.1)
+        client.publish(TOPICO_MATCH, f"{player_id} saiu do matchmaking", qos=1)
+    client.loop_stop()
+    client.disconnect()
+    ui.root.destroy()
+
+#Função principal das mensagens
+def on_message(client, userdata, msg):
+    global partida_anunciada, partida_iniciada
+
+    conteudo = msg.payload.decode() if msg.payload else ""
+    topico = msg.topic
 
     if "Partida encontrada!" in conteudo:
-        print(f"\n {player_id}: Iniciando partida com jogadores {jogadores_conectados}...\n")
-        #Para de ouvir o loop
-        client.loop_stop()
-    
-    # Apenas imprime (sem retornar ainda)
-    print(f"[Mensagem recebida de tópico {msg.topic}] {conteudo}")
+        if not partida_iniciada:
+            partida_iniciada = True
+            ui.set_status("Partida encontrada!", "green")
+            print(f"[{player_id}] Partida iniciada com: {jogadores_conectados}")
+        return
 
-    # Se for uma mensagem de entrada de matchmaking
+    if topico.startswith("jogo/matchmaking/players/"):
+        id_jogador = topico.split("/")[-1]
+
+        if conteudo == "online":
+            jogadores_conectados.add(id_jogador)
+        else:
+            jogadores_conectados.discard(id_jogador)
+
+        print(f"[PRESENÇA] {id_jogador} → {conteudo or 'offline'}")
+        ui.atualizar_jogadores(jogadores_conectados)
+
+        if partida_anunciada and len(jogadores_conectados) < 3:
+            partida_anunciada = False
+            partida_iniciada = False
+            ui.set_status("Um jogador saiu! Voltando ao matchmaking...", "orange")
+            ui.habilitar_botao(True)
+
+        ui.root.after(300, verificar_partida)
+        return
+
     if "entrou no matchmaking" in conteudo:
-        id_recebido = conteudo.split()[0]
+        id_novo = conteudo.split()[0]
+        jogadores_conectados.add(id_novo)
+        ui.atualizar_jogadores(jogadores_conectados)
+        ui.root.after(300, verificar_partida)
+        return
 
-        # Adiciona o id
-        jogadores_conectados.add(id_recebido)
+    if "saiu do matchmaking" in conteudo:
+        id_saiu = conteudo.split()[0]
+        jogadores_conectados.discard(id_saiu)
+        ui.atualizar_jogadores(jogadores_conectados)
 
-        # Ignora as mensagens do próprio jogador nas próximas partes
-        if id_recebido == player_id:
-            return
-        
-        print(f"Jogadores conectados até agora: {jogadores_conectados}")
+        if partida_anunciada and len(jogadores_conectados) < 3:
+            partida_anunciada = False
+            partida_iniciada = False
+            ui.set_status("Um jogador saiu! Voltando ao matchmaking...", "orange")
+            ui.habilitar_botao(True)
 
-    #Se já houver 3 jogadores conectados, o jogador com menos ID anuncia a partida
-    if not partida_anunciada and len(jogadores_conectados) == 3:
-        partida_anunciada = True
-        if player_id == min(jogadores_conectados):
-            print("\nPartida encontrada! Jogadores prontos:", jogadores_conectados)
-            time.sleep(0.5) #Pequena pausa para entregar as mensagens anteriores
-            client.publish(TOPICO_MATCH, "Partida encontrada!", retain=False)
 
+#Inicia a interface
+ui = MatchmakingUI(player_id)
+ui.on_buscar_callback = iniciar_matchmaking
+ui.root.protocol("WM_DELETE_WINDOW", fechar_janela)
+
+#Inicinado MQTT/Definindo os subs
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+client = paho.Client(client_id=player_id, callback_api_version=paho.CallbackAPIVersion.VERSION1)
 client.on_message = on_message
+client.connect("localhost", 1883)
+client.subscribe("jogo/matchmaking", qos=1)
+client.subscribe("jogo/matchmaking/players/#", qos=1)
+client.loop_start()
 
-#Criando mensagem
-message = f"{player_id} entrou no matchmaking!"
-
-#Publicando a mensagem criada
-client.publish(TOPICO_MATCH, message)
-
-#Rodar indefinidamente
-client.loop_forever()
+#Inicia o loop da interface
+ui.iniciar()
