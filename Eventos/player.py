@@ -6,7 +6,6 @@ import time
 import warnings
 import subprocess
 import socket
-import os
 
 #Identificação inicial player/tópicos
 player_id = f"player_{random.randint(1000, 9999)}"
@@ -192,7 +191,7 @@ ui = MatchmakingUI(player_id)
 ui.on_buscar_callback = iniciar_matchmaking
 ui.root.protocol("WM_DELETE_WINDOW", fechar_janela)
 
-#Inicinado MQTT/Definindo os subs
+#IniciaNdo MQTT/Definindo os subs
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 client = paho.Client(client_id=player_id, callback_api_version=paho.CallbackAPIVersion.VERSION1)
 client.on_message = on_message
